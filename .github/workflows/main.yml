@@ -1,4 +1,4 @@
-                               name: News bot
+name: News bot
 
 on:
   schedule:
