@@ -108,16 +108,45 @@ def clean(s):
 
 
 def load_seen():
+    """يعيد قاموساً مرتباً بحسب الإضافة (مفاتيحه معرّفات الأخبار وعناوينها)."""
     try:
         with open(SEEN_FILE, encoding="utf-8") as f:
-            return set(json.load(f))
+            return dict.fromkeys(json.load(f))
     except (FileNotFoundError, json.JSONDecodeError):
-        return set()
+        return {}
 
 
 def save_seen(seen):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(sorted(seen)[-2000:], f, ensure_ascii=False)
+        json.dump(list(seen)[-2500:], f, ensure_ascii=False)
+
+
+# ---- منع تكرار نفس الخبر من مصادر مختلفة ----
+STOP = {"ان", "في", "من", "على", "الى", "عن", "مع", "ما", "هذا", "هذه", "بعد",
+        "قبل", "التي", "الذي", "ثم", "قال", "تقرير", "عاجل", "حول", "ضد"}
+
+
+def title_tokens(title):
+    out = set()
+    for w in re.findall(r"\w+", norm(title)):
+        if w.startswith("ال") and len(w) > 4:
+            w = w[2:]
+        if len(w) > 4 and w[0] in "وبلف":
+            w = w[1:]
+        if len(w) >= 3 and w not in STOP:
+            out.add(w)
+    return frozenset(out)
+
+
+def is_dup(tok, recent):
+    if len(tok) < 3:
+        return False
+    for r in recent:
+        i = len(tok & r)
+        if i and (i / len(tok | r) >= 0.5
+                  or (i >= 3 and i / min(len(tok), len(r)) >= 0.75)):
+            return True
+    return False
 
 
 def send(text):
@@ -131,6 +160,7 @@ def send(text):
 
 def main():
     seen = load_seen()
+    recent = [frozenset(k[2:].split()) for k in seen if k.startswith("T:")][-300:]
     sent = 0
     for url in FEEDS:
         tracked = "news.google.com/rss/search" in url
@@ -148,7 +178,11 @@ def main():
             use_filter = bool(ACTIVE_TOPICS) and not tracked
             topics = match_topics(raw_title + " " + raw_summary) if use_filter else []
             if use_filter and not topics:
-                seen.add(uid)  # غير مطابق: لا يُرسل ولا يُفحص مجدداً
+                seen[uid] = None  # غير مطابق: لا يُرسل ولا يُفحص مجدداً
+                continue
+            tok = title_tokens(raw_title)
+            if is_dup(tok, recent):
+                seen[uid] = None  # نفس الخبر وصل سابقاً من مصدر آخر
                 continue
             tags = " ".join("#" + t.replace(" ", "_") for t in topics)
             parts = [f"<b>{html.escape(raw_title)}</b>"]
@@ -159,7 +193,10 @@ def main():
             if tags:
                 msg += f"\n\n{tags}"
             send(msg)
-            seen.add(uid)
+            seen[uid] = None
+            if len(tok) >= 3:
+                recent.append(tok)
+                seen["T:" + " ".join(sorted(tok))] = None
             sent += 1
             time.sleep(3)  # تفادي حدود الإرسال
             if sent >= MAX_PER_RUN:
