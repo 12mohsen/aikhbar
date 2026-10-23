@@ -6,6 +6,7 @@
 import html
 import json
 import os
+import re
 import time
 
 import feedparser
@@ -69,11 +70,30 @@ def norm(s):
     return s.lower()
 
 
+PREFIXES = ("وال", "بال", "فال", "كال", "لل", "ال", "و", "ب", "ل", "ف")
+
+
+def kw_hit(text, tokens, kw):
+    """كلمة تبدأ بـ = تُطابَق ككلمة كاملة (مع السوابق مثل ال/ب/و)، وغير ذلك تُطابَق كجزء من النص."""
+    kw = norm(kw)
+    if kw.startswith("="):
+        w = kw[1:]
+        return any(
+            t == w or any(t.startswith(p) and t[len(p):] == w for p in PREFIXES)
+            for t in tokens
+        )
+    return kw in text
+
+
 def match_topics(text):
     text = norm(text)
-    if any(norm(w) in text for w in EXCLUDE):
+    tokens = re.findall(r"\w+", text)
+    if any(kw_hit(text, tokens, w) for w in EXCLUDE):
         return []
-    return [t for t in ACTIVE_TOPICS if any(norm(w) in text for w in TOPICS[t])]
+    return [
+        t for t in ACTIVE_TOPICS
+        if any(kw_hit(text, tokens, w) for w in TOPICS[t])
+    ]
 
 
 def load_seen():
