@@ -47,6 +47,20 @@ ACTIVE_TOPICS = ["اقتصاد", "الشرق الأوسط"]
 # أي خبر يحتوي إحدى هذه الكلمات لا يُرسل (اختياري)
 EXCLUDE = []
 
+# ---------------------------------------------------------------
+# 3) إعدادات لوحة التحكم: إن وُجد ملف config.json فهو يتقدّم على ما سبق
+# ---------------------------------------------------------------
+try:
+    with open("config.json", encoding="utf-8") as _f:
+        _cfg = json.load(_f)
+except (FileNotFoundError, json.JSONDecodeError):
+    _cfg = {}
+FEEDS = _cfg.get("feeds", FEEDS)
+TOPICS = _cfg.get("topics", TOPICS)
+ACTIVE_TOPICS = [t for t in _cfg.get("active", ACTIVE_TOPICS) if t in TOPICS]
+EXCLUDE = _cfg.get("exclude", EXCLUDE)
+MAX_PER_RUN = int(_cfg.get("max_per_run", MAX_PER_RUN))
+
 
 def norm(s):
     """توحيد الحروف العربية لتطابق أدق (أ إ آ ← ا، ة ← ه، ى ← ي)."""
