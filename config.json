@@ -269,13 +269,33 @@
     "https://news.google.com/rss/search?q=%D8%A7%D9%84%D9%86%D8%A7%D8%AF%D9%8A+%D8%A7%D9%84%D8%A3%D9%87%D9%84%D9%8A+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A+when:1d&hl=ar&gl=SA&ceid=SA:ar",
     "https://news.google.com/rss/search?q=%D8%B9%D8%A7%D8%AC%D9%84+when:1d&hl=ar&gl=SA&ceid=SA:ar"
   ],
-  "max_per_run": 10,
+  "max_per_run": 5,
   "style": {
     "auto_hashtags": true,
     "hashtags": [
       "#أخبار"
     ],
     "max_tags": 6,
+    "breaking_words": [
+      "عاجل",
+      "انفجار",
+      "اغتيال",
+      "زلزال",
+      "غارات",
+      "قصف"
+    ],
+    "quiet": {
+      "enabled": true,
+      "start": "00:00",
+      "end": "06:00",
+      "allow_breaking": true
+    },
+    "digest": {
+      "enabled": false,
+      "time": "07:00",
+      "count": 8
+    },
+    "tz": 3,
     "mode": "short",
     "signature": "@newsMO1",
     "show_source": true
