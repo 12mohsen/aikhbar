@@ -8,7 +8,7 @@ import json
 import os
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import unquote_plus, urlparse
 
 import feedparser
 import requests
@@ -75,6 +75,10 @@ STYLE = {
     "show_source": True,      # سطر «المصدر: ...» برابط الخبر الأصلي
     "breaking_words": ["عاجل", "انفجار", "هجوم", "قصف", "اغتيال", "زلزال",
                        "اشتباكات", "غارات", "وفاة"],
+    "auto_hashtags": True,    # إضافة هاشتاجات تلقائياً (تفيد في بحث تلجرام)
+    "hashtags": ["#أخبار"],   # هاشتاجات ثابتة تُضاف لكل خبر
+    "keyword_tags": True,     # هاشتاج للكلمات التي طابقت الخبر (مثل #السعودية)
+    "max_tags": 6,
 }
 STYLE.update(_cfg.get("style") or {})
 
@@ -209,10 +213,55 @@ def send(text, preview=True):
     r.raise_for_status()
 
 
-def build_message(title, summary, link, source, topics):
+def to_tag(text):
+    """يحوّل نصاً إلى هاشتاج صالح في تلجرام (بدون مسافات أو رموز)."""
+    words = re.sub(r"[^\w\s]", " ", text or "").split()
+    t = "_".join(words)
+    return "#" + t if len(t) >= 2 and not t.isdigit() else ""
+
+
+def matched_keywords(text, topics, limit=2):
+    n = norm(text)
+    tokens = re.findall(r"\w+", n)
+    found = []
+    for t in topics:
+        for kw in TOPICS.get(t, []):
+            if kw_hit(n, tokens, kw):
+                label = kw.lstrip("=")
+                if label not in found:
+                    found.append(label)
+            if len(found) >= limit:
+                return found
+    return found
+
+
+def build_tags(title, summary, topics, urgent, tracked_query):
+    if not STYLE.get("auto_hashtags", True):
+        return ""
+    fixed = list(STYLE.get("hashtags") or [])
+    cands = []
+    if urgent:
+        cands.append("عاجل")
+    cands += fixed[:1]                      # هاشتاج القناة الأساسي أولاً
+    cands += list(topics)
+    if STYLE.get("keyword_tags", True):
+        cands += matched_keywords(title + " " + summary, topics)
+    if tracked_query:
+        cands.append(tracked_query)
+    cands += fixed[1:]                      # بقية الثابتة إن بقي مجال
+    tags = []
+    for c in cands:
+        t = to_tag(c)
+        if t and t not in tags:
+            tags.append(t)
+    return " ".join(tags[: int(STYLE.get("max_tags", 6))])
+
+
+def build_message(title, summary, link, source, topics, tracked_query=""):
     if STYLE.get("mode") == "short":
         urgent = any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
         title = re.sub(r"^\s*عاجل\s*[:|\-–]*\s*", "", title)
+        tags = build_tags(title, summary, topics, urgent, tracked_query)
         if urgent:
             parts = ["🔴 <b>عاجل | " + html.escape(title) + "</b>"]
         else:
@@ -220,6 +269,8 @@ def build_message(title, summary, link, source, topics):
         if STYLE.get("show_source", True) and link:
             label = "🔗 قراءة الخبر من " + (source or "المصدر")
             parts.append(f'<a href="{html.escape(link, quote=True)}">{html.escape(label)}</a>')
+        if tags:
+            parts.append(html.escape(tags))
         if STYLE.get("signature"):
             parts.append(html.escape(STYLE["signature"]))
         return "\n\n".join(parts)
@@ -228,8 +279,9 @@ def build_message(title, summary, link, source, topics):
         parts.append(html.escape(summary[:300]))
     parts.append(link)
     msg = "\n\n".join(parts)
-    tags = " ".join("#" + t.replace(" ", "_") for t in topics)
-    return msg + (f"\n\n{tags}" if tags else "")
+    urgent = any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
+    tags = build_tags(title, summary, topics, urgent, tracked_query)
+    return msg + (f"\n\n{html.escape(tags)}" if tags else "")
 
 
 def main():
@@ -240,6 +292,11 @@ def main():
           f"عدد المصادر: {len(FEEDS)} | أقصى إرسال: {MAX_PER_RUN}")
     for url in FEEDS:
         tracked = "news.google.com/rss/search" in url
+        tq = ""
+        if tracked:
+            m = re.search(r"[?&]q=([^&]*)", url)
+            if m:
+                tq = re.sub(r"\s*when:\S+", "", unquote_plus(m.group(1))).strip()
         d = feedparser.parse(url)
         feed_info = getattr(d, "feed", None) or {}
         feed_title = clean(feed_info.get("title", ""))
@@ -276,7 +333,7 @@ def main():
                 seen[uid] = None  # نفس الخبر وصل سابقاً من مصدر آخر
                 st["مكرر"] += 1
                 continue
-            msg = build_message(raw_title, raw_summary, entry.get("link", ""), src, topics)
+            msg = build_message(raw_title, raw_summary, entry.get("link", ""), src, topics, tq)
             send(msg, preview=STYLE.get("mode") != "short")
             seen[uid] = None
             if len(tok) >= 3:
