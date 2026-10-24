@@ -1,256 +1,244 @@
-"""بوت تلجرام: يجلب الأخبار من خلاصات RSS ويرسل المطابق لمواضيعك فقط.
-
-التثبيت:   pip install requests feedparser
-التشغيل:   BOT_TOKEN=xxx CHANNEL=@my_news_channel python news_bot.py
-"""
-import html
-import json
-import os
-import re
-import time
-
-import feedparser
-import requests
-
-BOT_TOKEN = os.environ["BOT_TOKEN"]      # من @BotFather
-CHANNEL = os.environ["CHANNEL"]          # مثل @my_news_channel
-SEEN_FILE = "seen.json"
-MAX_PER_RUN = 5
-
-# ---------------------------------------------------------------
-# 1) المصادر: أضف أو احذف روابط RSS كما تريد
-# ---------------------------------------------------------------
-FEEDS = [
+{
+  "topics": {
+    "اقتصاد": [
+      "اقتصاد",
+      "نفط",
+      "اسعار",
+      "بورصة",
+      "اسهم",
+      "بنك",
+      "تضخم",
+      "فائدة",
+      "الذهب",
+      "الدولار",
+      "عملة",
+      "استثمار",
+      "تجارة",
+      "ميزانية",
+      "صندوق النقد",
+      "اوبك",
+      "ارباح",
+      "اسواق",
+      "بيتكوين"
+    ],
+    "الشرق الأوسط": [
+      "غزة",
+      "فلسطين",
+      "اسرائيل",
+      "لبنان",
+      "سوريا",
+      "العراق",
+      "اليمن",
+      "ايران",
+      "السعودية",
+      "=مصر",
+      "الاردن",
+      "الخليج",
+      "قطر",
+      "الامارات",
+      "الكويت",
+      "=عمان",
+      "البحرين",
+      "ليبيا",
+      "السودان",
+      "تونس",
+      "الجزائر",
+      "المغرب"
+    ],
+    "أوروبا": [
+      "أوروبا",
+      "الاتحاد الاوروبي",
+      "بريطانيا",
+      "لندن",
+      "فرنسا",
+      "باريس",
+      "المانيا",
+      "برلين",
+      "ايطاليا",
+      "روما",
+      "اسبانيا",
+      "مدريد",
+      "البرتغال",
+      "هولندا",
+      "بلجيكا",
+      "بروكسل",
+      "سويسرا",
+      "النمسا",
+      "اليونان",
+      "بولندا",
+      "اوكرانيا",
+      "كييف",
+      "روسيا",
+      "موسكو",
+      "السويد",
+      "النرويج",
+      "الدنمارك",
+      "فنلندا",
+      "ايرلندا",
+      "التشيك",
+      "المجر",
+      "رومانيا",
+      "صربيا",
+      "الناتو"
+    ],
+    "آسيا": [
+      "=آسيا",
+      "الصين",
+      "بكين",
+      "اليابان",
+      "طوكيو",
+      "=الهند",
+      "نيودلهي",
+      "باكستان",
+      "اسلام اباد",
+      "افغانستان",
+      "كابول",
+      "كوريا",
+      "سيول",
+      "بيونغ يانغ",
+      "اندونيسيا",
+      "ماليزيا",
+      "سنغافورة",
+      "تايلاند",
+      "فيتنام",
+      "الفلبين",
+      "بنغلاديش",
+      "تايوان",
+      "كازاخستان"
+    ],
+    "الأمريكتان": [
+      "امريكا",
+      "الولايات المتحدة",
+      "واشنطن",
+      "نيويورك",
+      "البيت الابيض",
+      "كندا",
+      "اوتاوا",
+      "المكسيك",
+      "البرازيل",
+      "الارجنتين",
+      "تشيلي",
+      "كولومبيا",
+      "فنزويلا",
+      "كوبا",
+      "=بيرو",
+      "الاكوادور",
+      "بنما"
+    ],
+    "أفريقيا": [
+      "افريقيا",
+      "الاتحاد الافريقي",
+      "نيجيريا",
+      "اثيوبيا",
+      "اديس ابابا",
+      "كينيا",
+      "نيروبي",
+      "غانا",
+      "السنغال",
+      "اوغندا",
+      "تنزانيا",
+      "الصومال",
+      "جيبوتي",
+      "اريتريا",
+      "زيمبابوي",
+      "انغولا",
+      "الكونغو",
+      "=تشاد",
+      "النيجر",
+      "الجابون",
+      "الكاميرون",
+      "موزمبيق",
+      "مدغشقر"
+    ],
+    "الذكاء الاصطناعي": [
+      "الذكاء الاصطناعي",
+      "ذكاء اصطناعي",
+      "الذكاء الاصطناعي التوليدي",
+      "=AI",
+      "شات جي بي تي",
+      "chatgpt",
+      "openai",
+      "اوبن ايه اي",
+      "جيميني",
+      "gemini",
+      "anthropic",
+      "انثروبيك",
+      "ديب سيك",
+      "deepseek",
+      "غروك",
+      "grok",
+      "نموذج لغوي",
+      "نماذج لغوية",
+      "التعلم الالي",
+      "تعلم الالة",
+      "روبوت",
+      "روبوتات",
+      "انفيديا",
+      "nvidia",
+      "سام التمان"
+    ],
+    "الرياضة": [
+      "الرياضة",
+      "رياضي",
+      "كرة القدم",
+      "كرة السلة",
+      "كرة اليد",
+      "كرة الطائرة",
+      "التنس",
+      "مباراة",
+      "مباريات",
+      "لاعب",
+      "بطولة",
+      "الدوري",
+      "دوري ابطال",
+      "كاس العالم",
+      "كاس اسيا",
+      "المنتخب",
+      "الاولمبي",
+      "اولمبياد",
+      "فيفا",
+      "fifa",
+      "nba",
+      "ufc",
+      "فورمولا",
+      "الملاكمة",
+      "ملعب",
+      "رونالدو",
+      "ميسي",
+      "مبابي",
+      "هالاند",
+      "ريال مدريد",
+      "برشلونة",
+      "ليفربول",
+      "مانشستر",
+      "دوري روشن",
+      "الدوري السعودي"
+    ]
+  },
+  "active": [
+    "اقتصاد",
+    "الشرق الأوسط",
+    "أوروبا",
+    "آسيا",
+    "الأمريكتان",
+    "أفريقيا",
+    "الذكاء الاصطناعي",
+    "الرياضة"
+  ],
+  "exclude": [],
+  "feeds": [
     "https://feeds.bbci.co.uk/arabic/rss.xml",
     "https://feeds.bbci.co.uk/arabic/business/rss.xml",
     "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9",
     "https://www.france24.com/ar/rss",
     "https://aawsat.com/feed",
-    # خلاصة تتبّع (Google News): تُرسل كل نتائجها بدون فلتر المواضيع.
-    # مثال: "https://news.google.com/rss/search?q=كوريا+الشمالية+when:1d&hl=ar&gl=SA&ceid=SA:ar",
-]
-
-# ---------------------------------------------------------------
-# 2) المواضيع: عدّل الكلمات كما تشاء
-# ---------------------------------------------------------------
-TOPICS = {
-    "اقتصاد": [
-        "اقتصاد", "نفط", "اسعار", "بورصه", "اسهم", "بنك", "تضخم", "فائده",
-        "الذهب", "الدولار", "عمله", "استثمار", "تجاره", "ميزانيه",
-        "صندوق النقد", "اوبك", "ارباح", "اسواق", "عملات رقميه", "بيتكوين",
-    ],
-    "الشرق الأوسط": [
-        "غزه", "فلسطين", "اسرائيل", "لبنان", "سوريا", "العراق", "اليمن",
-        "ايران", "السعوديه", "مصر", "الاردن", "الخليج", "قطر", "الامارات",
-        "الكويت", "عمان", "البحرين", "ليبيا", "السودان", "تونس", "الجزائر",
-        "المغرب",
-    ],
+    "https://news.google.com/rss/search?q=%D8%B6%D8%B1%D8%A8+%D8%A5%D9%8A%D8%B1%D8%A7%D9%86+when:1d&hl=ar&gl=SA&ceid=SA:ar",
+    "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A%D9%87+%D9%88%D8%A7%D9%84%D8%AD%D9%88%D8%AB%D9%8A+when:1d&hl=ar&gl=SA&ceid=SA:ar"
+  ],
+  "max_per_run": 8,
+  "style": {
+    "mode": "short",
+    "signature": "@newsMO1",
+    "show_source": true
+  }
 }
-
-# المواضيع المفعّلة. اتركها فارغة [] لإرسال كل الأخبار بدون فلترة
-ACTIVE_TOPICS = ["اقتصاد", "الشرق الأوسط"]
-
-# أي خبر يحتوي إحدى هذه الكلمات لا يُرسل (اختياري)
-EXCLUDE = []
-
-# ---------------------------------------------------------------
-# 3) إعدادات لوحة التحكم: إن وُجد ملف config.json فهو يتقدّم على ما سبق
-# ---------------------------------------------------------------
-try:
-    with open("config.json", encoding="utf-8") as _f:
-        _cfg = json.load(_f)
-except (FileNotFoundError, json.JSONDecodeError):
-    _cfg = {}
-FEEDS = _cfg.get("feeds", FEEDS)
-TOPICS = _cfg.get("topics", TOPICS)
-ACTIVE_TOPICS = [t for t in _cfg.get("active", ACTIVE_TOPICS) if t in TOPICS]
-EXCLUDE = _cfg.get("exclude", EXCLUDE)
-MAX_PER_RUN = int(_cfg.get("max_per_run", MAX_PER_RUN))
-
-# شكل الرسالة: short = عنوان مختصر + مصدر + توقيع القناة، full = عنوان + ملخص + وسوم
-STYLE = {
-    "mode": "full",
-    "signature": "",          # مثل @newsMO1
-    "show_source": True,      # سطر «المصدر: ...» برابط الخبر الأصلي
-    "breaking_words": ["عاجل", "انفجار", "هجوم", "قصف", "اغتيال", "زلزال",
-                       "اشتباكات", "غارات", "وفاة"],
-}
-STYLE.update(_cfg.get("style") or {})
-
-
-def norm(s):
-    """توحيد الحروف العربية لتطابق أدق (أ إ آ ← ا، ة ← ه، ى ← ي)."""
-    for a, b in (("أ", "ا"), ("إ", "ا"), ("آ", "ا"), ("ة", "ه"), ("ى", "ي")):
-        s = s.replace(a, b)
-    return s.lower()
-
-
-PREFIXES = ("وال", "بال", "فال", "كال", "لل", "ال", "و", "ب", "ل", "ف")
-
-
-def kw_hit(text, tokens, kw):
-    """كلمة تبدأ بـ = تُطابَق ككلمة كاملة (مع السوابق مثل ال/ب/و)، وغير ذلك تُطابَق كجزء من النص."""
-    kw = norm(kw)
-    if kw.startswith("="):
-        w = kw[1:]
-        return any(
-            t == w or any(t.startswith(p) and t[len(p):] == w for p in PREFIXES)
-            for t in tokens
-        )
-    return kw in text
-
-
-def match_topics(text):
-    text = norm(text)
-    tokens = re.findall(r"\w+", text)
-    if any(kw_hit(text, tokens, w) for w in EXCLUDE):
-        return []
-    return [
-        t for t in ACTIVE_TOPICS
-        if any(kw_hit(text, tokens, w) for w in TOPICS[t])
-    ]
-
-
-def clean(s):
-    """إزالة وسوم HTML والمسافات الزائدة من النص."""
-    s = re.sub(r"<[^>]+>", " ", s or "")
-    return re.sub(r"\s+", " ", html.unescape(s)).strip()
-
-
-def load_seen():
-    """يعيد قاموساً مرتباً بحسب الإضافة (مفاتيحه معرّفات الأخبار وعناوينها)."""
-    try:
-        with open(SEEN_FILE, encoding="utf-8") as f:
-            return dict.fromkeys(json.load(f))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
-
-def save_seen(seen):
-    with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(seen)[-2500:], f, ensure_ascii=False)
-
-
-# ---- منع تكرار نفس الخبر من مصادر مختلفة ----
-STOP = {"ان", "في", "من", "على", "الى", "عن", "مع", "ما", "هذا", "هذه", "بعد",
-        "قبل", "التي", "الذي", "ثم", "قال", "تقرير", "عاجل", "حول", "ضد"}
-
-
-def title_tokens(title):
-    out = set()
-    for w in re.findall(r"\w+", norm(title)):
-        if w.startswith("ال") and len(w) > 4:
-            w = w[2:]
-        if len(w) > 4 and w[0] in "وبلف":
-            w = w[1:]
-        if len(w) >= 3 and w not in STOP:
-            out.add(w)
-    return frozenset(out)
-
-
-def is_dup(tok, recent):
-    if len(tok) < 3:
-        return False
-    for r in recent:
-        i = len(tok & r)
-        if i and (i / len(tok | r) >= 0.5
-                  or (i >= 3 and i / min(len(tok), len(r)) >= 0.75)):
-            return True
-    return False
-
-
-def send(text, preview=True):
-    r = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={"chat_id": CHANNEL, "text": text, "parse_mode": "HTML",
-              "disable_web_page_preview": not preview},
-        timeout=20,
-    )
-    r.raise_for_status()
-
-
-def build_message(title, summary, link, source, topics):
-    if STYLE.get("mode") == "short":
-        urgent = any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
-        title = re.sub(r"^\s*عاجل\s*[:|\-–]*\s*", "", title)
-        head = html.escape(title)
-        if urgent:
-            head = "🔴 <b>عاجل</b> | " + head
-        foot = []
-        if STYLE.get("show_source", True) and link:
-            label = f"المصدر: {source}" if source else "المصدر"
-            foot.append(f'<a href="{html.escape(link, quote=True)}">{html.escape(label)}</a>')
-        if STYLE.get("signature"):
-            foot.append(html.escape(STYLE["signature"]))
-        return head + ("\n\n" + " | ".join(foot) if foot else "")
-    parts = [f"<b>{html.escape(title)}</b>"]
-    if summary:
-        parts.append(html.escape(summary[:300]))
-    parts.append(link)
-    msg = "\n\n".join(parts)
-    tags = " ".join("#" + t.replace(" ", "_") for t in topics)
-    return msg + (f"\n\n{tags}" if tags else "")
-
-
-def main():
-    seen = load_seen()
-    recent = [frozenset(k[2:].split()) for k in seen if k.startswith("T:")][-300:]
-    sent = 0
-    print(f"المواضيع المفعّلة: {ACTIVE_TOPICS or 'الكل (بدون فلتر)'} | "
-          f"عدد المصادر: {len(FEEDS)} | أقصى إرسال: {MAX_PER_RUN}")
-    for url in FEEDS:
-        tracked = "news.google.com/rss/search" in url
-        d = feedparser.parse(url)
-        feed_info = getattr(d, "feed", None) or {}
-        feed_title = clean(feed_info.get("title", ""))
-        entries = d.entries
-        if not entries:
-            print(f"[تحذير] لا أخبار من: {url[:70]} ({getattr(d, 'bozo_exception', 'فارغ')})")
-            continue
-        if tracked:
-            entries = entries[:3]  # آخر 3 أخبار فقط من خلاصات التتبّع
-        st = {"كل": len(entries), "جديد": 0, "غير مطابق": 0, "مكرر": 0, "أُرسل": 0}
-        for entry in entries:
-            uid = entry.get("id") or entry.get("link")
-            if not uid or uid in seen:
-                continue
-            st["جديد"] += 1
-            raw_title = clean(entry.get("title", ""))
-            src = clean((entry.get("source") or {}).get("title", "")) or feed_title
-            if src and raw_title.endswith(" - " + src):
-                raw_title = raw_title[: -len(src) - 3].strip()
-            raw_summary = clean(entry.get("summary", ""))
-            if raw_summary.startswith(raw_title[:40]):
-                raw_summary = ""  # الملخص يكرر العنوان
-            use_filter = bool(ACTIVE_TOPICS) and not tracked
-            topics = match_topics(raw_title + " " + raw_summary) if use_filter else []
-            if use_filter and not topics:
-                seen[uid] = None  # غير مطابق: لا يُرسل ولا يُفحص مجدداً
-                st["غير مطابق"] += 1
-                continue
-            tok = title_tokens(raw_title)
-            if is_dup(tok, recent):
-                seen[uid] = None  # نفس الخبر وصل سابقاً من مصدر آخر
-                st["مكرر"] += 1
-                continue
-            msg = build_message(raw_title, raw_summary, entry.get("link", ""), src, topics)
-            send(msg, preview=STYLE.get("mode") != "short")
-            seen[uid] = None
-            if len(tok) >= 3:
-                recent.append(tok)
-                seen["T:" + " ".join(sorted(tok))] = None
-            sent += 1
-            st["أُرسل"] += 1
-            time.sleep(3)  # تفادي حدود الإرسال
-            if sent >= MAX_PER_RUN:
-                break
-        print(f"{url[:60]} -> {st}")
-        if sent >= MAX_PER_RUN:
-            print("وصل الحد الأقصى للإرسال في هذا التشغيل")
-            break
-    save_seen(seen)
-    print(f"تم إرسال {sent} خبر")
-
-
-if __name__ == "__main__":
-    main()
