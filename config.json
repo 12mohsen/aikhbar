@@ -285,13 +285,13 @@
       "قصف"
     ],
     "quiet": {
-      "enabled": false,
+      "enabled": true,
       "start": "00:00",
       "end": "06:00",
       "allow_breaking": true
     },
     "digest": {
-      "enabled": false,
+      "enabled": true,
       "time": "07:00",
       "count": 8
     },
