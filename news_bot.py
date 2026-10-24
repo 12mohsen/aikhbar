@@ -67,6 +67,16 @@ ACTIVE_TOPICS = [t for t in _cfg.get("active", ACTIVE_TOPICS) if t in TOPICS]
 EXCLUDE = _cfg.get("exclude", EXCLUDE)
 MAX_PER_RUN = int(_cfg.get("max_per_run", MAX_PER_RUN))
 
+# شكل الرسالة: short = عنوان مختصر + مصدر + توقيع القناة، full = عنوان + ملخص + وسوم
+STYLE = {
+    "mode": "full",
+    "signature": "",          # مثل @newsMO1
+    "show_source": True,      # سطر «المصدر: ...» برابط الخبر الأصلي
+    "breaking_words": ["عاجل", "انفجار", "هجوم", "قصف", "اغتيال", "زلزال",
+                       "اشتباكات", "غارات", "وفاة"],
+}
+STYLE.update(_cfg.get("style") or {})
+
 
 def norm(s):
     """توحيد الحروف العربية لتطابق أدق (أ إ آ ← ا، ة ← ه، ى ← ي)."""
@@ -149,13 +159,37 @@ def is_dup(tok, recent):
     return False
 
 
-def send(text):
+def send(text, preview=True):
     r = requests.post(
         f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={"chat_id": CHANNEL, "text": text, "parse_mode": "HTML"},
+        json={"chat_id": CHANNEL, "text": text, "parse_mode": "HTML",
+              "disable_web_page_preview": not preview},
         timeout=20,
     )
     r.raise_for_status()
+
+
+def build_message(title, summary, link, source, topics):
+    if STYLE.get("mode") == "short":
+        urgent = any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
+        title = re.sub(r"^\s*عاجل\s*[:|\-–]*\s*", "", title)
+        head = html.escape(title)
+        if urgent:
+            head = "🔴 <b>عاجل</b> | " + head
+        foot = []
+        if STYLE.get("show_source", True) and link:
+            label = f"المصدر: {source}" if source else "المصدر"
+            foot.append(f'<a href="{html.escape(link, quote=True)}">{html.escape(label)}</a>')
+        if STYLE.get("signature"):
+            foot.append(html.escape(STYLE["signature"]))
+        return head + ("\n\n" + " | ".join(foot) if foot else "")
+    parts = [f"<b>{html.escape(title)}</b>"]
+    if summary:
+        parts.append(html.escape(summary[:300]))
+    parts.append(link)
+    msg = "\n\n".join(parts)
+    tags = " ".join("#" + t.replace(" ", "_") for t in topics)
+    return msg + (f"\n\n{tags}" if tags else "")
 
 
 def main():
@@ -167,6 +201,8 @@ def main():
     for url in FEEDS:
         tracked = "news.google.com/rss/search" in url
         d = feedparser.parse(url)
+        feed_info = getattr(d, "feed", None) or {}
+        feed_title = clean(feed_info.get("title", ""))
         entries = d.entries
         if not entries:
             print(f"[تحذير] لا أخبار من: {url[:70]} ({getattr(d, 'bozo_exception', 'فارغ')})")
@@ -180,6 +216,9 @@ def main():
                 continue
             st["جديد"] += 1
             raw_title = clean(entry.get("title", ""))
+            src = clean((entry.get("source") or {}).get("title", "")) or feed_title
+            if src and raw_title.endswith(" - " + src):
+                raw_title = raw_title[: -len(src) - 3].strip()
             raw_summary = clean(entry.get("summary", ""))
             if raw_summary.startswith(raw_title[:40]):
                 raw_summary = ""  # الملخص يكرر العنوان
@@ -194,15 +233,8 @@ def main():
                 seen[uid] = None  # نفس الخبر وصل سابقاً من مصدر آخر
                 st["مكرر"] += 1
                 continue
-            tags = " ".join("#" + t.replace(" ", "_") for t in topics)
-            parts = [f"<b>{html.escape(raw_title)}</b>"]
-            if raw_summary:
-                parts.append(html.escape(raw_summary[:300]))
-            parts.append(entry.get("link", ""))
-            msg = "\n\n".join(parts)
-            if tags:
-                msg += f"\n\n{tags}"
-            send(msg)
+            msg = build_message(raw_title, raw_summary, entry.get("link", ""), src, topics)
+            send(msg, preview=STYLE.get("mode") != "short")
             seen[uid] = None
             if len(tok) >= 3:
                 recent.append(tok)
