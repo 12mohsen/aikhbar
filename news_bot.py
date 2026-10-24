@@ -8,6 +8,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote_plus, urlparse
 
 import feedparser
@@ -63,6 +64,8 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     _cfg = {}
 FEEDS = _cfg.get("feeds", FEEDS)
+BLOCKED = ("arabic.rt.com",)   # مصادر محجوبة لا يستخدمها البوت أبداً
+FEEDS = [u for u in FEEDS if not any(b in u for b in BLOCKED)]
 TOPICS = _cfg.get("topics", TOPICS)
 ACTIVE_TOPICS = [t for t in _cfg.get("active", ACTIVE_TOPICS) if t in TOPICS]
 EXCLUDE = _cfg.get("exclude", EXCLUDE)
@@ -73,8 +76,10 @@ STYLE = {
     "mode": "full",
     "signature": "",          # مثل @newsMO1
     "show_source": True,      # سطر «المصدر: ...» برابط الخبر الأصلي
-    "breaking_words": ["عاجل", "انفجار", "هجوم", "قصف", "اغتيال", "زلزال",
-                       "اشتباكات", "غارات", "وفاة"],
+    "breaking_words": ["عاجل", "انفجار", "اغتيال", "زلزال", "غارات", "قصف"],
+    "tz": 3,                  # فرق التوقيت عن UTC (السعودية = 3)
+    "quiet": {"enabled": False, "start": "00:00", "end": "06:00", "allow_breaking": True},
+    "digest": {"enabled": False, "time": "07:00", "count": 8},
     "auto_hashtags": True,    # إضافة هاشتاجات تلقائياً (تفيد في بحث تلجرام)
     "hashtags": ["#أخبار"],   # هاشتاجات ثابتة تُضاف لكل خبر
     "keyword_tags": True,     # هاشتاج للكلمات التي طابقت الخبر (مثل #السعودية)
@@ -129,7 +134,7 @@ SITE_NAMES = {
     "bbc.co.uk": "BBC عربي", "bbci.co.uk": "BBC عربي", "bbc.com": "BBC عربي",
     "aljazeera.net": "الجزيرة نت", "france24.com": "فرانس 24",
     "aawsat.com": "الشرق الأوسط", "alquds.co.uk": "القدس العربي",
-    "rt.com": "RT عربي", "skynewsarabia.com": "سكاي نيوز عربية",
+    "skynewsarabia.com": "سكاي نيوز عربية",
     "alarabiya.net": "العربية", "arabicpost.net": "عربي بوست",
     "youm7.com": "اليوم السابع", "dw.com": "DW عربية",
     "aa.com.tr": "الأناضول", "independentarabia.com": "اندبندنت عربية",
@@ -213,6 +218,79 @@ def send(text, preview=True):
     r.raise_for_status()
 
 
+def local_now():
+    return datetime.now(timezone.utc) + timedelta(hours=float(STYLE.get("tz", 3)))
+
+
+def _minutes(hhmm, default):
+    try:
+        h, m = str(hhmm).split(":")
+        return int(h) * 60 + int(m)
+    except (ValueError, TypeError):
+        return default
+
+
+def in_quiet(now):
+    q = STYLE.get("quiet") or {}
+    if not q.get("enabled"):
+        return False
+    a, b = _minutes(q.get("start"), 0), _minutes(q.get("end"), 360)
+    t = now.hour * 60 + now.minute
+    return (a <= t < b) if a <= b else (t >= a or t < b)
+
+
+def is_urgent(title):
+    return any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
+
+
+def add_history(seen, title, link, src, urgent):
+    rec = {"ts": int(time.time()), "t": title, "l": link, "s": src, "u": urgent}
+    seen["H:" + json.dumps(rec, ensure_ascii=False)] = None
+
+
+def recent_history(seen, hours=24):
+    cutoff = time.time() - hours * 3600
+    out = []
+    for k in seen:
+        if k.startswith("H:"):
+            try:
+                r = json.loads(k[2:])
+            except json.JSONDecodeError:
+                continue
+            if r.get("ts", 0) >= cutoff:
+                out.append(r)
+    return out
+
+
+def maybe_digest(seen, now):
+    """ملخص يومي: يُرسل مرة واحدة بعد وقت الملخص، من أخبار آخر 24 ساعة."""
+    d = STYLE.get("digest") or {}
+    if not d.get("enabled"):
+        return
+    key = "D:" + now.strftime("%Y-%m-%d")
+    if key in seen or now.hour * 60 + now.minute < _minutes(d.get("time"), 420):
+        return
+    seen[key] = None
+    items = recent_history(seen)
+    if not items:
+        return
+    items.sort(key=lambda r: (not r.get("u"), -r["ts"]))  # العاجل أولاً ثم الأحدث
+    lines, size = [], 0
+    for i, r in enumerate(items[: int(d.get("count", 8))], 1):
+        t = re.sub(r"^\s*عاجل\s*[:|\-–]*\s*", "", r["t"])
+        mark = "🔴 " if r.get("u") else ""
+        line = f'{i}. {mark}<a href="{html.escape(r["l"], quote=True)}">{html.escape(t)}</a>'
+        if size + len(line) > 3500:
+            break
+        lines.append(line)
+        size += len(line) + 2
+    msg = "☀️ <b>أبرز أخبار آخر 24 ساعة</b>\n\n" + "\n\n".join(lines)
+    if STYLE.get("signature"):
+        msg += "\n\n" + html.escape(STYLE["signature"])
+    send(msg, preview=False)
+    print("تم إرسال الملخص اليومي")
+
+
 def to_tag(text):
     """يحوّل نصاً إلى هاشتاج صالح في تلجرام (بدون مسافات أو رموز)."""
     words = re.sub(r"[^\w\s]", " ", text or "").split()
@@ -288,6 +366,9 @@ def main():
     seen = load_seen()
     recent = [frozenset(k[2:].split()) for k in seen if k.startswith("T:")][-300:]
     sent = 0
+    now = local_now()
+    quiet = in_quiet(now)
+    print(f"الوقت المحلي: {now:%H:%M} | ساعات الهدوء: {'نعم' if quiet else 'لا'}")
     print(f"المواضيع المفعّلة: {ACTIVE_TOPICS or 'الكل (بدون فلتر)'} | "
           f"عدد المصادر: {len(FEEDS)} | أقصى إرسال: {MAX_PER_RUN}")
     for url in FEEDS:
@@ -306,7 +387,7 @@ def main():
             continue
         if tracked:
             entries = entries[:3]  # آخر 3 أخبار فقط من خلاصات التتبّع
-        st = {"كل": len(entries), "جديد": 0, "غير مطابق": 0, "مكرر": 0, "أُرسل": 0}
+        st = {"كل": len(entries), "جديد": 0, "غير مطابق": 0, "مكرر": 0, "صمت": 0, "أُرسل": 0}
         for entry in entries:
             uid = entry.get("id") or entry.get("link")
             if not uid or uid in seen:
@@ -333,12 +414,18 @@ def main():
                 seen[uid] = None  # نفس الخبر وصل سابقاً من مصدر آخر
                 st["مكرر"] += 1
                 continue
+            urgent = is_urgent(raw_title)
+            if quiet and not (urgent and (STYLE.get("quiet") or {}).get("allow_breaking", True)):
+                seen[uid] = None  # وقت هدوء: لا يُنشر الخبر العادي
+                st["صمت"] += 1
+                continue
             msg = build_message(raw_title, raw_summary, entry.get("link", ""), src, topics, tq)
             send(msg, preview=STYLE.get("mode") != "short")
             seen[uid] = None
             if len(tok) >= 3:
                 recent.append(tok)
                 seen["T:" + " ".join(sorted(tok))] = None
+            add_history(seen, raw_title, entry.get("link", ""), src, urgent)
             sent += 1
             st["أُرسل"] += 1
             time.sleep(3)  # تفادي حدود الإرسال
@@ -348,6 +435,10 @@ def main():
         if sent >= MAX_PER_RUN:
             print("وصل الحد الأقصى للإرسال في هذا التشغيل")
             break
+    try:
+        maybe_digest(seen, now)
+    except Exception as e:  # لا نُفشل التشغيل بسبب الملخص
+        print(f"[تحذير] تعذّر إرسال الملخص: {e}")
     save_seen(seen)
     print(f"تم إرسال {sent} خبر")
 
