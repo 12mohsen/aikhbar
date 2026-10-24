@@ -271,7 +271,7 @@
   ],
   "max_per_run": 10,
   "style": {
-    "mode": "full",
+    "mode": "short",
     "signature": "@newsMO1",
     "show_source": true
   }
