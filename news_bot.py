@@ -8,6 +8,7 @@ import json
 import os
 import re
 import time
+from urllib.parse import urlparse
 
 import feedparser
 import requests
@@ -112,9 +113,48 @@ def match_topics(text):
 
 
 def clean(s):
-    """إزالة وسوم HTML والمسافات الزائدة من النص."""
+    """إزالة وسوم HTML والنصوص البرمجية الزائدة (مثل taxonomy/term/2) والمسافات."""
     s = re.sub(r"<[^>]+>", " ", s or "")
-    return re.sub(r"\s+", " ", html.unescape(s)).strip()
+    s = html.unescape(s)
+    s = re.sub(r"\S*(?:taxonomy/term|node)/\d+\S*", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+# ---- اسم المصدر الحقيقي ----
+SITE_NAMES = {
+    "bbc.co.uk": "BBC عربي", "bbci.co.uk": "BBC عربي", "bbc.com": "BBC عربي",
+    "aljazeera.net": "الجزيرة نت", "france24.com": "فرانس 24",
+    "aawsat.com": "الشرق الأوسط", "alquds.co.uk": "القدس العربي",
+    "rt.com": "RT عربي", "skynewsarabia.com": "سكاي نيوز عربية",
+    "alarabiya.net": "العربية", "arabicpost.net": "عربي بوست",
+    "youm7.com": "اليوم السابع", "dw.com": "DW عربية",
+    "aa.com.tr": "الأناضول", "independentarabia.com": "اندبندنت عربية",
+    "argaam.com": "أرقام",
+}
+_TECH = re.compile(r"taxonomy|term/|node/|\.xml|\.rss|\.php|https?:|rss|feed|[?=&]", re.I)
+
+
+def looks_technical(name):
+    return (not name) or "/" in name or len(name) > 40 or bool(_TECH.search(name))
+
+
+def host_of(url):
+    return (urlparse(url or "").netloc.lower().split(":")[0]).removeprefix("www.")
+
+
+def source_label(entry_source, feed_title, link):
+    """يختار اسماً نظيفاً للمصدر ويتجاهل النصوص التقنية."""
+    if entry_source and not looks_technical(entry_source):
+        return entry_source  # ناشر الخبر الحقيقي (يأتي من Google News)
+    host = host_of(link)
+    for dom, name in SITE_NAMES.items():
+        if host == dom or host.endswith("." + dom):
+            return name
+    if feed_title and not looks_technical(feed_title):
+        return feed_title
+    if host and host != "news.google.com":
+        return host
+    return ""
 
 
 def load_seen():
@@ -173,16 +213,16 @@ def build_message(title, summary, link, source, topics):
     if STYLE.get("mode") == "short":
         urgent = any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
         title = re.sub(r"^\s*عاجل\s*[:|\-–]*\s*", "", title)
-        head = html.escape(title)
         if urgent:
-            head = "🔴 <b>عاجل</b> | " + head
-        foot = []
+            parts = ["🔴 <b>عاجل | " + html.escape(title) + "</b>"]
+        else:
+            parts = ["<b>" + html.escape(title) + "</b>"]
         if STYLE.get("show_source", True) and link:
-            label = f"المصدر: {source}" if source else "المصدر"
-            foot.append(f'<a href="{html.escape(link, quote=True)}">{html.escape(label)}</a>')
+            label = "🔗 قراءة الخبر من " + (source or "المصدر")
+            parts.append(f'<a href="{html.escape(link, quote=True)}">{html.escape(label)}</a>')
         if STYLE.get("signature"):
-            foot.append(html.escape(STYLE["signature"]))
-        return head + ("\n\n" + " | ".join(foot) if foot else "")
+            parts.append(html.escape(STYLE["signature"]))
+        return "\n\n".join(parts)
     parts = [f"<b>{html.escape(title)}</b>"]
     if summary:
         parts.append(html.escape(summary[:300]))
@@ -216,7 +256,10 @@ def main():
                 continue
             st["جديد"] += 1
             raw_title = clean(entry.get("title", ""))
-            src = clean((entry.get("source") or {}).get("title", "")) or feed_title
+            ent_src = clean((entry.get("source") or {}).get("title", ""))
+            if ent_src and raw_title.endswith(" - " + ent_src):
+                raw_title = raw_title[: -len(ent_src) - 3].strip()
+            src = source_label(ent_src, feed_title, entry.get("link", ""))
             if src and raw_title.endswith(" - " + src):
                 raw_title = raw_title[: -len(src) - 3].strip()
             raw_summary = clean(entry.get("summary", ""))
