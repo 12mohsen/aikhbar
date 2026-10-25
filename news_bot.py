@@ -69,9 +69,7 @@ FEEDS = [u for u in FEEDS if not any(b in u for b in BLOCKED)]
 TOPICS = _cfg.get("topics", TOPICS)
 ACTIVE_TOPICS = [t for t in _cfg.get("active", ACTIVE_TOPICS) if t in TOPICS]
 EXCLUDE = _cfg.get("exclude", EXCLUDE)
-# خلاصات التتبّع أولاً: المصادر العامة غزيرة وكانت تلتهم حصة الإرسال قبل
-# أن يصل دور التتبّع، فلا يظهر الخبر الذي تتابعه أصلاً. الترتيب ثابت الباقي.
-FEEDS.sort(key=lambda u: "news.google.com/rss/search" not in u)
+TRACK_MARK = "news.google.com/rss/search"   # علامة خلاصة التتبّع
 MAX_PER_RUN = int(_cfg.get("max_per_run", MAX_PER_RUN))
 # الفاصل الزمني بين كل إرسال بالدقائق (0 = كل تشغيل كما تحدده الجدولة)
 INTERVAL_MINUTES = int(_cfg.get("interval_minutes", 0) or 0)
@@ -214,6 +212,32 @@ def save_seen(seen):
             ids.append(k)
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(ids[-MAX_IDS:] + hist, f, ensure_ascii=False)
+
+
+def feed_order(seen):
+    """خلاصات التتبّع أولاً، ثم المصادر العامة بدءاً من حيث توقف التشغيل السابق.
+
+    الحلقة تتوقف عند بلوغ حد الإرسال، فلو بدأ كل تشغيل من أول القائمة لما
+    قُرئت المصادر الأخيرة أبداً. التدوير يمنح كل مصدر دوره عبر التشغيلات.
+    """
+    tracked = [u for u in FEEDS if TRACK_MARK in u]
+    general = [u for u in FEEDS if TRACK_MARK not in u]
+    start = 0
+    for k in seen:
+        if k.startswith("F:") and k[2:] in general:
+            start = general.index(k[2:])
+            break
+    return general, tracked + general[start:] + general[:start]
+
+
+def save_next_start(seen, general, last_url):
+    """يحفظ المصدر العام الذي يبدأ منه التشغيل القادم (مفتاح F: واحد)."""
+    if not general or last_url not in general:
+        return
+    nxt = general[(general.index(last_url) + 1) % len(general)]
+    for k in [k for k in seen if k.startswith("F:")]:
+        del seen[k]
+    seen["F:" + nxt] = None
 
 
 def last_run(seen):
@@ -433,8 +457,12 @@ def main():
     print(f"الوقت المحلي: {now:%H:%M} | ساعات الهدوء: {'نعم' if quiet else 'لا'}")
     print(f"المواضيع المفعّلة: {ACTIVE_TOPICS or 'الكل (بدون فلتر)'} | "
           f"عدد المصادر: {len(FEEDS)} | أقصى إرسال: {MAX_PER_RUN}")
-    for url in FEEDS:
-        tracked = "news.google.com/rss/search" in url
+    general_feeds, ordered = feed_order(seen)
+    last_general = None
+    for url in ordered:
+        tracked = TRACK_MARK in url
+        if not tracked:
+            last_general = url
         tq = ""
         if tracked:
             m = re.search(r"[?&]q=([^&]*)", url)
@@ -502,6 +530,7 @@ def main():
         if sent >= MAX_PER_RUN:
             print("وصل الحد الأقصى للإرسال في هذا التشغيل")
             break
+    save_next_start(seen, general_feeds, last_general)
     try:
         maybe_digest(seen, now)
     except Exception as e:  # لا نُفشل التشغيل بسبب الملخص
