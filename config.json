@@ -41,7 +41,13 @@
       "اسعار الغاز",
       "الاسواق العالمية",
       "وول ستريت",
-      "ارباح الشركات"
+      "ارباح الشركات",
+      "رواتب",
+      "موظفين",
+      "علاوة",
+      "تعريفة",
+      "معاشات",
+      "تقاعد"
     ],
     "الشرق الأوسط": [
       "غزة",
@@ -97,7 +103,13 @@
       "موريتانيا",
       "تركيا",
       "انقرة",
-      "جامعة الدول العربية"
+      "جامعة الدول العربية",
+      "سعودي",
+      "خادم الحرمين",
+      "الملك سلمان",
+      "ولي العهد",
+      "أمر ملكي",
+      "مجلس الوزراء"
     ],
     "أوروبا": [
       "أوروبا",
@@ -281,22 +293,14 @@
   ],
   "exclude": [],
   "feeds": [
-    "https://feeds.bbci.co.uk/arabic/rss.xml",
-    "https://feeds.bbci.co.uk/arabic/business/rss.xml",
-    "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9",
-    "https://www.france24.com/ar/rss",
-    "https://aawsat.com/feed",
-    "https://www.alarabiya.net/.mrss/ar.xml",
-    "https://www.argaam.com/ar/rss",
-    "https://www.aleqt.com/rss",
-    "https://www.aa.com.tr/ar/rss/default?cat=guncel",
+    "https://rss.dw.com/rdf/rss-ar-all",
     "https://news.google.com/rss/search?q=%D8%B6%D8%B1%D8%A8+%D8%A5%D9%8A%D8%B1%D8%A7%D9%86+when:1d&hl=ar&gl=SA&ceid=SA:ar",
     "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A%D9%87+%D9%88%D8%A7%D9%84%D8%AD%D9%88%D8%AB%D9%8A+when:1d&hl=ar&gl=SA&ceid=SA:ar",
     "https://news.google.com/rss/search?q=%D8%A7%D9%84%D9%86%D8%A7%D8%AF%D9%8A+%D8%A7%D9%84%D8%A3%D9%87%D9%84%D9%8A+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A+when:1d&hl=ar&gl=SA&ceid=SA:ar",
     "https://news.google.com/rss/search?q=%D8%B9%D8%A7%D8%AC%D9%84+when:1d&hl=ar&gl=SA&ceid=SA:ar",
-    "https://news.google.com/rss/search?q=%D9%88%D8%A7%D8%B3+when:1d&hl=ar&gl=SA&ceid=SA:ar",
     "https://news.google.com/rss/search?q=%D8%A3%D9%85%D8%B1+%D9%85%D9%84%D9%83%D9%8A+when:1d&hl=ar&gl=SA&ceid=SA:ar",
-    "https://news.google.com/rss/search?q=%D9%85%D8%AC%D9%84%D8%B3+%D8%A7%D9%84%D9%88%D8%B2%D8%B1%D8%A7%D8%A1+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A+when:1d&hl=ar&gl=SA&ceid=SA:ar"
+    "https://news.google.com/rss/search?q=%D9%85%D8%AC%D9%84%D8%B3+%D8%A7%D9%84%D9%88%D8%B2%D8%B1%D8%A7%D8%A1+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A+when:1d&hl=ar&gl=SA&ceid=SA:ar",
+    "https://news.google.com/rss/search?q=%D9%88%D9%83%D8%A7%D9%84%D8%A9+%D8%A7%D9%84%D8%A3%D9%86%D8%A8%D8%A7%D8%A1+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A%D8%A9+when:1d&hl=ar&gl=SA&ceid=SA:ar"
   ],
   "max_per_run": 6,
   "interval_minutes": 0,
