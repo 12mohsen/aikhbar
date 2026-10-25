@@ -73,6 +73,9 @@ TRACK_MARK = "news.google.com/rss/search"   # علامة خلاصة التتبّ
 MAX_PER_RUN = int(_cfg.get("max_per_run", MAX_PER_RUN))
 # الفاصل الزمني بين كل إرسال بالدقائق (0 = كل تشغيل كما تحدده الجدولة)
 INTERVAL_MINUTES = int(_cfg.get("interval_minutes", 0) or 0)
+# أقصى عدد أخبار من المصدر الواحد في التشغيل الواحد (0 = بلا حد)،
+# حتى لا يبتلع مصدر عنده تراكم حصة الإرسال كلها ويحرم بقية المصادر.
+MAX_PER_FEED = int(_cfg.get("max_per_feed", 3) or 0)
 # التشغيل اليدوي من Actions أو من زر الحفظ يتجاوز الفاصل دائماً
 FORCE = os.environ.get("FORCE", "").strip().lower() in ("1", "true", "yes")
 
@@ -224,8 +227,15 @@ def feed_order(seen):
     general = [u for u in FEEDS if TRACK_MARK not in u]
     start = 0
     for k in seen:
-        if k.startswith("F:") and k[2:] in general:
-            start = general.index(k[2:])
+        if k.startswith("F:"):
+            payload = k[2:]
+            idx, sep, url = payload.partition("|")
+            if not sep:
+                idx, url = "", payload        # الصيغة القديمة: الاسم وحده
+            if url in general:
+                start = general.index(url)                 # المصدر نفسه باقٍ
+            elif idx.isdigit() and general:
+                start = min(int(idx), len(general) - 1)    # حُذف: نكمل من أقرب موضع
             break
     return general, tracked + general[start:] + general[:start]
 
@@ -234,10 +244,10 @@ def save_next_start(seen, general, last_url):
     """يحفظ المصدر العام الذي يبدأ منه التشغيل القادم (مفتاح F: واحد)."""
     if not general or last_url not in general:
         return
-    nxt = general[(general.index(last_url) + 1) % len(general)]
+    i = (general.index(last_url) + 1) % len(general)
     for k in [k for k in seen if k.startswith("F:")]:
         del seen[k]
-    seen["F:" + nxt] = None
+    seen["F:%d|%s" % (i, general[i])] = None
 
 
 def last_run(seen):
@@ -456,7 +466,8 @@ def main():
     quiet = in_quiet(now)
     print(f"الوقت المحلي: {now:%H:%M} | ساعات الهدوء: {'نعم' if quiet else 'لا'}")
     print(f"المواضيع المفعّلة: {ACTIVE_TOPICS or 'الكل (بدون فلتر)'} | "
-          f"عدد المصادر: {len(FEEDS)} | أقصى إرسال: {MAX_PER_RUN}")
+          f"عدد المصادر: {len(FEEDS)} | أقصى إرسال: {MAX_PER_RUN} | "
+          f"حد المصدر الواحد: {MAX_PER_FEED or 'بلا حد'}")
     general_feeds, ordered = feed_order(seen)
     last_general = None
     for url in ordered:
@@ -478,6 +489,7 @@ def main():
         if tracked:
             entries = entries[:3]  # آخر 3 أخبار فقط من خلاصات التتبّع
         st = {"كل": len(entries), "جديد": 0, "غير مطابق": 0, "مكرر": 0, "صمت": 0, "أُرسل": 0}
+        sent_here = 0
         for entry in entries:
             uid = entry.get("id") or entry.get("link")
             if not uid or uid in seen:
@@ -522,10 +534,13 @@ def main():
                 seen["T:" + " ".join(sorted(tok))] = None
             add_history(seen, raw_title, entry.get("link", ""), src, urgent)
             sent += 1
+            sent_here += 1
             st["أُرسل"] += 1
             time.sleep(3)  # تفادي حدود الإرسال
             if sent >= MAX_PER_RUN:
                 break
+            if MAX_PER_FEED and sent_here >= MAX_PER_FEED:
+                break  # أعطِ بقية المصادر فرصتها
         print(f"{url[:60]} -> {st}")
         if sent >= MAX_PER_RUN:
             print("وصل الحد الأقصى للإرسال في هذا التشغيل")
