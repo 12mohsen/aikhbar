@@ -69,6 +69,9 @@ FEEDS = [u for u in FEEDS if not any(b in u for b in BLOCKED)]
 TOPICS = _cfg.get("topics", TOPICS)
 ACTIVE_TOPICS = [t for t in _cfg.get("active", ACTIVE_TOPICS) if t in TOPICS]
 EXCLUDE = _cfg.get("exclude", EXCLUDE)
+# خلاصات التتبّع أولاً: المصادر العامة غزيرة وكانت تلتهم حصة الإرسال قبل
+# أن يصل دور التتبّع، فلا يظهر الخبر الذي تتابعه أصلاً. الترتيب ثابت الباقي.
+FEEDS.sort(key=lambda u: "news.google.com/rss/search" not in u)
 MAX_PER_RUN = int(_cfg.get("max_per_run", MAX_PER_RUN))
 # الفاصل الزمني بين كل إرسال بالدقائق (0 = كل تشغيل كما تحدده الجدولة)
 INTERVAL_MINUTES = int(_cfg.get("interval_minutes", 0) or 0)
@@ -112,6 +115,15 @@ def kw_hit(text, tokens, kw):
             for t in tokens
         )
     return kw in text
+
+
+def is_excluded(text):
+    """كلمات الاستبعاد تُفحص لكل خبر: التتبّع يتجاوز فلتر المواضيع لا الاستبعاد."""
+    if not EXCLUDE:
+        return False
+    t = norm(text)
+    tokens = re.findall(r"\w+", t)
+    return any(kw_hit(t, tokens, w) for w in EXCLUDE)
 
 
 def match_topics(text):
@@ -453,8 +465,13 @@ def main():
             raw_summary = clean(entry.get("summary", ""))
             if raw_summary.startswith(raw_title[:40]):
                 raw_summary = ""  # الملخص يكرر العنوان
+            full_text = raw_title + " " + raw_summary
+            if is_excluded(full_text):
+                seen[uid] = None  # يحتوي كلمة مستبعدة
+                st["غير مطابق"] += 1
+                continue
             use_filter = bool(ACTIVE_TOPICS) and not tracked
-            topics = match_topics(raw_title + " " + raw_summary) if use_filter else []
+            topics = match_topics(full_text) if use_filter else []
             if use_filter and not topics:
                 seen[uid] = None  # غير مطابق: لا يُرسل ولا يُفحص مجدداً
                 st["غير مطابق"] += 1
