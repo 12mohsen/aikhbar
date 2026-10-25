@@ -70,6 +70,10 @@ TOPICS = _cfg.get("topics", TOPICS)
 ACTIVE_TOPICS = [t for t in _cfg.get("active", ACTIVE_TOPICS) if t in TOPICS]
 EXCLUDE = _cfg.get("exclude", EXCLUDE)
 MAX_PER_RUN = int(_cfg.get("max_per_run", MAX_PER_RUN))
+# الفاصل الزمني بين كل إرسال بالدقائق (0 = كل تشغيل كما تحدده الجدولة)
+INTERVAL_MINUTES = int(_cfg.get("interval_minutes", 0) or 0)
+# التشغيل اليدوي من Actions أو من زر الحفظ يتجاوز الفاصل دائماً
+FORCE = os.environ.get("FORCE", "").strip().lower() in ("1", "true", "yes")
 
 # شكل الرسالة: short = عنوان مختصر + مصدر + توقيع القناة، full = عنوان + ملخص + وسوم
 STYLE = {
@@ -198,6 +202,25 @@ def save_seen(seen):
             ids.append(k)
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(ids[-MAX_IDS:] + hist, f, ensure_ascii=False)
+
+
+def last_run(seen):
+    """وقت آخر تشغيل فعلي للبوت (مخزَّن في seen.json كمفتاح R:)."""
+    ts = 0
+    for k in seen:
+        if k.startswith("R:"):
+            try:
+                ts = max(ts, int(k[2:]))
+            except ValueError:
+                pass
+    return ts
+
+
+def mark_run(seen):
+    """يسجّل وقت هذا التشغيل ويحذف الطابع القديم حتى لا تتراكم."""
+    for k in [k for k in seen if k.startswith("R:")]:
+        del seen[k]
+    seen["R:" + str(int(time.time()))] = None
 
 
 # ---- منع تكرار نفس الخبر من مصادر مختلفة ----
@@ -384,6 +407,13 @@ def build_message(title, summary, link, source, topics, tracked_query=""):
 
 def main():
     seen = load_seen()
+    if INTERVAL_MINUTES and not FORCE:
+        waited = (time.time() - last_run(seen)) / 60
+        if waited < INTERVAL_MINUTES:
+            print(f"تخطٍّ: مضى {waited:.0f} دقيقة من أصل {INTERVAL_MINUTES} "
+                  f"دقيقة (الفاصل المختار). لم يُرسل شيء.")
+            return
+    mark_run(seen)
     recent = [frozenset(k[2:].split()) for k in seen if k.startswith("T:")][-300:]
     sent = 0
     now = local_now()
