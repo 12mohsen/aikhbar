@@ -453,13 +453,15 @@ def build_message(title, summary, link, source, topics, tracked_query=""):
 
 def main():
     seen = load_seen()
+    urgent_only = False
     if INTERVAL_MINUTES and not FORCE:
         waited = (time.time() - last_run(seen)) / 60
         if waited < INTERVAL_MINUTES:
-            print(f"تخطٍّ: مضى {waited:.0f} دقيقة من أصل {INTERVAL_MINUTES} "
-                  f"دقيقة (الفاصل المختار). لم يُرسل شيء.")
-            return
-    mark_run(seen)
+            urgent_only = True   # العاجل يمرّ، وغيره يُؤجَّل للدفعة القادمة
+            print(f"دور انتظار: مضى {waited:.0f} دقيقة من أصل {INTERVAL_MINUTES} "
+                  f"دقيقة — العاجل وحده يُرسل الآن.")
+    if not urgent_only:
+        mark_run(seen)
     recent = [frozenset(k[2:].split()) for k in seen if k.startswith("T:")][-300:]
     sent = 0
     now = local_now()
@@ -467,7 +469,8 @@ def main():
     print(f"الوقت المحلي: {now:%H:%M} | ساعات الهدوء: {'نعم' if quiet else 'لا'}")
     print(f"المواضيع المفعّلة: {ACTIVE_TOPICS or 'الكل (بدون فلتر)'} | "
           f"عدد المصادر: {len(FEEDS)} | أقصى إرسال: {MAX_PER_RUN} | "
-          f"حد المصدر الواحد: {MAX_PER_FEED or 'بلا حد'}")
+          f"حد المصدر الواحد: {MAX_PER_FEED or 'بلا حد'} | "
+          f"الوضع: {'العاجل فقط' if urgent_only else 'إرسال كامل'}")
     general_feeds, ordered = feed_order(seen)
     last_general = None
     for url in ordered:
@@ -488,7 +491,8 @@ def main():
             continue
         if tracked:
             entries = entries[:3]  # آخر 3 أخبار فقط من خلاصات التتبّع
-        st = {"كل": len(entries), "جديد": 0, "غير مطابق": 0, "مكرر": 0, "صمت": 0, "أُرسل": 0}
+        st = {"كل": len(entries), "جديد": 0, "غير مطابق": 0, "مكرر": 0,
+              "انتظار": 0, "صمت": 0, "أُرسل": 0}
         sent_here = 0
         for entry in entries:
             uid = entry.get("id") or entry.get("link")
@@ -522,6 +526,9 @@ def main():
                 st["مكرر"] += 1
                 continue
             urgent = is_urgent(raw_title)
+            if urgent_only and not urgent:
+                st["انتظار"] += 1   # لا يُعلَّم مقروءاً: ينتظر الدفعة القادمة
+                continue
             if quiet and not (urgent and (STYLE.get("quiet") or {}).get("allow_breaking", True)):
                 # وقت هدوء: يُؤجَّل ولا يُعلَّم مقروءاً، فيُرسل بعد انتهاء الفترة
                 st["صمت"] += 1
@@ -545,7 +552,8 @@ def main():
         if sent >= MAX_PER_RUN:
             print("وصل الحد الأقصى للإرسال في هذا التشغيل")
             break
-    save_next_start(seen, general_feeds, last_general)
+    if not urgent_only:
+        save_next_start(seen, general_feeds, last_general)
     try:
         maybe_digest(seen, now)
     except Exception as e:  # لا نُفشل التشغيل بسبب الملخص
