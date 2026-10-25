@@ -523,7 +523,7 @@ def main():
                 continue
             urgent = is_urgent(raw_title)
             if quiet and not (urgent and (STYLE.get("quiet") or {}).get("allow_breaking", True)):
-                seen[uid] = None  # وقت هدوء: لا يُنشر الخبر العادي
+                # وقت هدوء: يُؤجَّل ولا يُعلَّم مقروءاً، فيُرسل بعد انتهاء الفترة
                 st["صمت"] += 1
                 continue
             msg = build_message(raw_title, raw_summary, entry.get("link", ""), src, topics, tq)
