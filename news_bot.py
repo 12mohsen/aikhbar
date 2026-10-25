@@ -175,9 +175,29 @@ def load_seen():
         return {}
 
 
+HISTORY_HOURS = 48      # عمر سجلات التاريخ H: قبل حذفها
+MAX_IDS = 4000          # أقصى عدد معرّفات/مفاتيح منع التكرار المحفوظة
+
+
 def save_seen(seen):
+    """يحفظ المعرّفات وسجلات التاريخ بحدّين منفصلين.
+
+    سجلات H: ثقيلة وكانت تزاحم معرّفات الأخبار على نفس الحد، فيُطرد معرّف
+    لخبر ما زال في الخلاصة فيُرسل مرة ثانية. الآن لكلٍّ حدّه.
+    """
+    cutoff = time.time() - HISTORY_HOURS * 3600
+    ids, hist = [], []
+    for k in seen:
+        if k.startswith("H:"):
+            try:
+                if json.loads(k[2:]).get("ts", 0) >= cutoff:
+                    hist.append(k)
+            except json.JSONDecodeError:
+                pass
+        else:
+            ids.append(k)
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(seen)[-2500:], f, ensure_ascii=False)
+        json.dump(ids[-MAX_IDS:] + hist, f, ensure_ascii=False)
 
 
 # ---- منع تكرار نفس الخبر من مصادر مختلفة ----
