@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "أرسل فوراً متجاوزاً الفاصل الزمني (yes) أو التزم بالفاصل (no)"
+        default: "yes"
 
 permissions:
   contents: write
@@ -30,7 +34,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL: ${{ secrets.CHANNEL }}
-          FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'yes' }}
 
       - name: Save seen.json
         run: |
