@@ -76,6 +76,9 @@ INTERVAL_MINUTES = int(_cfg.get("interval_minutes", 0) or 0)
 # أقصى عدد أخبار من المصدر الواحد في التشغيل الواحد (0 = بلا حد)،
 # حتى لا يبتلع مصدر عنده تراكم حصة الإرسال كلها ويحرم بقية المصادر.
 MAX_PER_FEED = int(_cfg.get("max_per_feed", 3) or 0)
+# حصة خلاصات التتبّع من الدفعة الواحدة (الافتراضي نصفها تقريباً)، حتى لا
+# تلتهم الدفعة كلها فلا تُقرأ المصادر العامة إطلاقاً.
+MAX_TRACKED = int(_cfg.get("max_tracked", 0) or 0) or max(1, (MAX_PER_RUN + 1) // 2)
 # التشغيل اليدوي من Actions أو من زر الحفظ يتجاوز الفاصل دائماً
 FORCE = os.environ.get("FORCE", "").strip().lower() in ("1", "true", "yes")
 
@@ -217,37 +220,49 @@ def save_seen(seen):
         json.dump(ids[-MAX_IDS:] + hist, f, ensure_ascii=False)
 
 
+def _rotate(lst, seen, tag):
+    """يعيد القائمة مُدارة بدءاً من الموضع المحفوظ في مفتاح tag."""
+    if not lst:
+        return lst
+    start = 0
+    for k in seen:
+        if k.startswith(tag):
+            idx, sep, url = k[len(tag):].partition("|")
+            if not sep:
+                idx, url = "", k[len(tag):]   # الصيغة القديمة: الاسم وحده
+            if url in lst:
+                start = lst.index(url)
+            elif idx.isdigit():
+                start = min(int(idx), len(lst) - 1)
+            break
+    return lst[start:] + lst[:start]
+
+
 def feed_order(seen):
-    """خلاصات التتبّع أولاً، ثم المصادر العامة بدءاً من حيث توقف التشغيل السابق.
+    """التتبّع أولاً ثم المصادر العامة، وكلٌّ يدور بدءاً من حيث توقف سابقاً.
 
     الحلقة تتوقف عند بلوغ حد الإرسال، فلو بدأ كل تشغيل من أول القائمة لما
     قُرئت المصادر الأخيرة أبداً. التدوير يمنح كل مصدر دوره عبر التشغيلات.
     """
     tracked = [u for u in FEEDS if TRACK_MARK in u]
     general = [u for u in FEEDS if TRACK_MARK not in u]
-    start = 0
-    for k in seen:
-        if k.startswith("F:"):
-            payload = k[2:]
-            idx, sep, url = payload.partition("|")
-            if not sep:
-                idx, url = "", payload        # الصيغة القديمة: الاسم وحده
-            if url in general:
-                start = general.index(url)                 # المصدر نفسه باقٍ
-            elif idx.isdigit() and general:
-                start = min(int(idx), len(general) - 1)    # حُذف: نكمل من أقرب موضع
-            break
-    return general, tracked + general[start:] + general[:start]
+    return (general, tracked,
+            _rotate(tracked, seen, "G:") + _rotate(general, seen, "F:"))
 
 
-def save_next_start(seen, general, last_url):
-    """يحفظ المصدر العام الذي يبدأ منه التشغيل القادم (مفتاح F: واحد)."""
-    if not general or last_url not in general:
+def _save_pointer(seen, lst, last_url, tag):
+    if not lst or last_url not in lst:
         return
-    i = (general.index(last_url) + 1) % len(general)
-    for k in [k for k in seen if k.startswith("F:")]:
+    i = (lst.index(last_url) + 1) % len(lst)
+    for k in [k for k in seen if k.startswith(tag)]:
         del seen[k]
-    seen["F:%d|%s" % (i, general[i])] = None
+    seen["%s%d|%s" % (tag, i, lst[i])] = None
+
+
+def save_next_start(seen, general, last_general, tracked=None, last_tracked=None):
+    """يحفظ نقطة بداية التشغيل القادم لكلٍّ من العامة والتتبّع."""
+    _save_pointer(seen, general, last_general, "F:")
+    _save_pointer(seen, tracked or [], last_tracked, "G:")
 
 
 def last_run(seen):
@@ -470,12 +485,18 @@ def main():
     print(f"المواضيع المفعّلة: {ACTIVE_TOPICS or 'الكل (بدون فلتر)'} | "
           f"عدد المصادر: {len(FEEDS)} | أقصى إرسال: {MAX_PER_RUN} | "
           f"حد المصدر الواحد: {MAX_PER_FEED or 'بلا حد'} | "
-          f"الوضع: {'العاجل فقط' if urgent_only else 'إرسال كامل'}")
-    general_feeds, ordered = feed_order(seen)
-    last_general = None
+          f"الوضع: {'العاجل فقط' if urgent_only else 'إرسال كامل'} | "
+          f"حصة التتبّع: {MAX_TRACKED}")
+    general_feeds, tracked_feeds, ordered = feed_order(seen)
+    last_general = last_tracked = None
+    sent_tracked = 0
     for url in ordered:
         tracked = TRACK_MARK in url
-        if not tracked:
+        if tracked:
+            if sent_tracked >= MAX_TRACKED:
+                continue          # استنفدت حصتها: اترك الباقي للمصادر العامة
+            last_tracked = url
+        else:
             last_general = url
         tq = ""
         if tracked:
@@ -542,18 +563,23 @@ def main():
             add_history(seen, raw_title, entry.get("link", ""), src, urgent)
             sent += 1
             sent_here += 1
+            if tracked:
+                sent_tracked += 1
             st["أُرسل"] += 1
             time.sleep(3)  # تفادي حدود الإرسال
             if sent >= MAX_PER_RUN:
                 break
             if MAX_PER_FEED and sent_here >= MAX_PER_FEED:
                 break  # أعطِ بقية المصادر فرصتها
+            if tracked and sent_tracked >= MAX_TRACKED:
+                break
         print(f"{url[:60]} -> {st}")
         if sent >= MAX_PER_RUN:
             print("وصل الحد الأقصى للإرسال في هذا التشغيل")
             break
     if not urgent_only:
-        save_next_start(seen, general_feeds, last_general)
+        save_next_start(seen, general_feeds, last_general,
+                        tracked_feeds, last_tracked)
     try:
         maybe_digest(seen, now)
     except Exception as e:  # لا نُفشل التشغيل بسبب الملخص
