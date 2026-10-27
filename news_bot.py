@@ -345,8 +345,15 @@ def in_quiet(now):
     return (a <= t < b) if a <= b else (t >= a or t < b)
 
 
+# نصوص بين علامات اقتباس: اسم جهة أو كلام منقول، لا إعلان خبر عاجل.
+# مثل «بونجاح لـ(عاجل): ...» حيث «عاجل» اسم صحيفة لا علامة عَجَلة.
+_QUOTED = re.compile(r"[\u00ab\u201c\u201d\"\u2039][^\u00bb\u201c\u201d\"\u203a]{0,40}"
+                     r"[\u00bb\u201c\u201d\"\u203a]")
+
+
 def is_urgent(title):
-    return any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
+    t = norm(_QUOTED.sub(" ", title or ""))
+    return any(norm(w) in t for w in STYLE.get("breaking_words", []))
 
 
 def add_history(seen, title, link, src, urgent):
@@ -501,7 +508,7 @@ def build_tags(title, summary, topics, urgent, tracked_query):
 
 def build_message(title, summary, link, source, topics, tracked_query=""):
     if STYLE.get("mode") == "short":
-        urgent = any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
+        urgent = is_urgent(title)
         title = re.sub(r"^\s*عاجل\s*[:|\-–]*\s*", "", title)
         tags = build_tags(title, summary, topics, urgent, tracked_query)
         if urgent:
@@ -521,7 +528,7 @@ def build_message(title, summary, link, source, topics, tracked_query=""):
         parts.append(html.escape(summary[:300]))
     parts.append(link)
     msg = "\n\n".join(parts)
-    urgent = any(norm(w) in norm(title) for w in STYLE.get("breaking_words", []))
+    urgent = is_urgent(title)
     tags = build_tags(title, summary, topics, urgent, tracked_query)
     return msg + (f"\n\n{html.escape(tags)}" if tags else "")
 
