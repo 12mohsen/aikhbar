@@ -383,11 +383,11 @@
       "count": 8
     },
     "opening": {
-      "enabled": false,
+      "enabled": true,
       "time": "06:00"
     },
     "closing": {
-      "enabled": false,
+      "enabled": true,
       "time": "22:00"
     },
     "tz": 3,
