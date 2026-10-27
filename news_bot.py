@@ -91,6 +91,8 @@ STYLE = {
     "tz": 3,                  # فرق التوقيت عن UTC (السعودية = 3)
     "quiet": {"enabled": False, "start": "00:00", "end": "06:00", "allow_breaking": True},
     "digest": {"enabled": False, "time": "07:00", "count": 8},
+    "opening": {"enabled": False, "time": "06:00"},   # فاتحة اليوم بآية
+    "closing": {"enabled": False, "time": "22:00"},   # ختام اليوم بآية
     "auto_hashtags": True,    # إضافة هاشتاجات تلقائياً (تفيد في بحث تلجرام)
     "hashtags": ["#أخبار"],   # هاشتاجات ثابتة تُضاف لكل خبر
     "keyword_tags": True,     # هاشتاج للكلمات التي طابقت الخبر (مثل #السعودية)
@@ -395,6 +397,64 @@ def maybe_digest(seen, now):
     print("تم إرسال الملخص اليومي")
 
 
+# ---------------------------------------------------------------
+# فاتحة اليوم وختامه بآية
+# ---------------------------------------------------------------
+# مراجع فقط (سورة:آية). النص نفسه يُجلب من مصدر معتمد عند الإرسال،
+# فلا يُكتب نص قرآني داخل هذا الملف إطلاقاً.
+AYAT_FAJR = [
+    "2:152", "2:201", "2:286", "3:139", "3:159", "3:173", "7:96", "9:51",
+    "10:62", "11:6", "13:28", "14:7", "16:97", "17:80", "20:114", "25:74",
+    "29:69", "39:53", "40:60", "46:15", "51:22", "65:3", "65:7", "93:5",
+    "94:6",
+]
+AYAT_MASA = [
+    "2:255", "2:285", "3:17", "3:190", "4:110", "6:60", "10:67", "11:114",
+    "13:11", "17:79", "24:22", "25:47", "28:73", "39:42", "40:61", "42:25",
+    "51:18", "59:23", "66:8", "67:2", "78:9",
+]
+AYAH_API = "https://api.alquran.cloud/v1/ayah/{}/quran-uthmani"
+
+
+def fetch_ayah(ref):
+    """يجلب نص الآية واسم سورتها. يرفع استثناءً إن تعذّر، فلا يُنشر نص مشكوك فيه."""
+    r = requests.get(AYAH_API.format(ref), timeout=20)
+    r.raise_for_status()
+    d = r.json()["data"]
+    text = (d.get("text") or "").strip()
+    if not text:
+        raise ValueError("نص فارغ")
+    return text, d["surah"]["name"], d["numberInSurah"]
+
+
+def maybe_quran(seen, now):
+    """ينشر آية الفاتحة أو الختام مرة واحدة في اليوم بعد وقتها المحدد."""
+    for tag, key, lst, title, default in (
+        ("QA", "opening", AYAT_FAJR, "🌅 <b>فاتحة اليوم</b>", 360),
+        ("QB", "closing", AYAT_MASA, "🌙 <b>ختام اليوم</b>", 1320),
+    ):
+        c = STYLE.get(key) or {}
+        if not c.get("enabled"):
+            continue
+        k = "%s:%s" % (tag, now.strftime("%Y-%m-%d"))
+        if k in seen or now.hour * 60 + now.minute < _minutes(c.get("time"), default):
+            continue
+        ref = lst[now.toordinal() % len(lst)]
+        try:
+            text, surah, num = fetch_ayah(ref)
+        except Exception as e:
+            # لا يُعلَّم مُرسَلاً: يُعاد المحاولة في التشغيل التالي
+            print(f"[تحذير] تعذّر جلب الآية {ref}: {e}")
+            continue
+        seen[k] = None
+        parts = [title, html.escape(text),
+                 "<i>" + html.escape("سورة %s — الآية %s" % (surah, num)) + "</i>"]
+        if STYLE.get("signature"):
+            parts.append(html.escape(STYLE["signature"]))
+        send("\n\n".join(parts), preview=False)
+        print(f"تم إرسال {title.replace('<b>','').replace('</b>','')} ({ref})")
+
+
 def to_tag(text):
     """يحوّل نصاً إلى هاشتاج صالح في تلجرام (بدون مسافات أو رموز)."""
     words = re.sub(r"[^\w\s]", " ", text or "").split()
@@ -580,6 +640,10 @@ def main():
     if not urgent_only:
         save_next_start(seen, general_feeds, last_general,
                         tracked_feeds, last_tracked)
+    try:
+        maybe_quran(seen, now)
+    except Exception as e:  # لا نُفشل التشغيل بسبب الآية
+        print(f"[تحذير] تعذّر إرسال الآية: {e}")
     try:
         maybe_digest(seen, now)
     except Exception as e:  # لا نُفشل التشغيل بسبب الملخص
