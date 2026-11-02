@@ -377,7 +377,7 @@
     "digest": {
       "enabled": true,
       "time": "07:00",
-      "count": 5
+      "count": 10
     },
     "opening": {
       "enabled": true,
